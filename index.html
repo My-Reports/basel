@@ -13,6 +13,15 @@
         .kpi-card p { font-size: 24px; font-weight: bold; color: #1e293b; margin: 10px 0 0 0; }
         .charts-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px; }
         @media (max-width: 768px) { .charts-grid { grid-template-columns: 1fr; } }
+        
+        /* تنسيقات الجدول لتوضيح إمكانية الفرز (Sorting) */
+        table { width: 100%; border-collapse: collapse; }
+        th { cursor: pointer; background-color: #f1f5f9; position: relative; padding-right: 20px; }
+        th:hover { background-color: #e2e8f0; }
+        th::after { content: '↕'; position: absolute; right: 5px; color: #94a3b8; font-size: 12px; }
+        /* لتنظيم الجدول من اليسار لليمين بالإنجليزية داخل بيئة عربية */
+        .table-container { direction: ltr; text-align: left; }
+        .table-container th, .table-container td { text-align: left; border: 1px solid #e2e8f0; padding: 10px; }
     </style>
 </head>
 <body>
@@ -53,8 +62,8 @@
         </div>
 
         <div class="card">
-            <h3>تفاصيل الحركات المالية</h3>
-            <div style="overflow-x:auto;">
+            <h3>تفاصيل الحركات المالية (اضغط على العنوان للترتيب)</h3>
+            <div class="table-container" style="overflow-x:auto;">
                 <table id="dataTable">
                     <thead><tr id="tableHeaders"></tr></thead>
                     <tbody id="tableBody"></tbody>
@@ -78,7 +87,21 @@
 
         const app = initializeApp(firebaseConfig);
         const db = getFirestore(app);
+        
         let charts = {};
+        let globalTableData = []; // لحفظ البيانات من أجل عملية الفرز
+        let sortDirection = {};   // لمعرفة اتجاه الفرز لكل عمود
+
+        // الأعمدة المطلوبة بالترتيب
+        const tableColumns = [
+            { key: 'Product Name', label: 'Product Name' },
+            { key: 'Customer', label: 'Customer' },
+            { key: 'Sector', label: 'Sector' },
+            { key: 'Product Group', label: 'Product Group' },
+            { key: 'Goods Value', label: 'Goods Value' },
+            { key: 'Budget Value', label: 'Budget Value' },
+            { key: 'Achievement', label: 'Achievement %' }
+        ];
 
         onSnapshot(collection(db, "mainData"), (snapshot) => {
             const data = [];
@@ -86,47 +109,136 @@
             if (data.length > 0) processData(data);
         });
 
+        // دالة لتحويل القيم النصية التي تحتوي على فواصل إلى أرقام صحيحة
         function parseNum(val) {
             if (typeof val === 'string') return parseFloat(val.replace(/,/g, '')) || 0;
             return parseFloat(val) || 0;
         }
 
-        function processData(data) {
-            // حساب الإجماليات
+        function processData(raw_data) {
             let actualTotal = 0, budgetTotal = 0, bonusTotal = 0;
             const sectorData = {}, productData = {};
+            globalTableData = []; // تفريغ الجدول للبيانات الجديدة
 
-            data.forEach(row => {
-                const actual = parseNum(row['Goods Value']);
-                const budget = parseNum(row['Budget Value']);
-                const bonus = parseNum(row['Bonus Quantity']);
-                const sector = row['Sector'] || 'Other';
-                const product = row['Product Name'] || 'Unknown';
+            // 1. تنظيف البيانات وبناء المصفوفة المهيئة
+            raw_data.forEach(row => {
+                // حل مشكلة المسافات في العناوين بإنشاء كائن جديد نظيف
+                const cleanRow = {};
+                for (let key in row) {
+                    const cleanKey = key.trim().replace(/\s+/g, ' '); 
+                    cleanRow[cleanKey] = row[key];
+                }
 
+                const actual = parseNum(cleanRow['Goods Value']);
+                const budget = parseNum(cleanRow['Budget Value']);
+                const bonus = parseNum(cleanRow['Bonus Quantity']);
+                const sector = cleanRow['Sector'] || 'Other';
+                const product = cleanRow['Product Name'] || 'Unknown';
+                
+                // حساب نسبة الإنجاز للسطر الواحد
+                const achRate = budget > 0 ? ((actual / budget) * 100).toFixed(1) : 0;
+
+                // تجميع البيانات للرسوم البيانية والمؤشرات
                 actualTotal += actual;
                 budgetTotal += budget;
                 bonusTotal += bonus;
-
                 sectorData[sector] = (sectorData[sector] || 0) + actual;
                 productData[product] = (productData[product] || 0) + actual;
+
+                // تجهيز السطر للجدول
+                globalTableData.push({
+                    'Product Name': product,
+                    'Customer': cleanRow['Customer'] || '-',
+                    'Sector': sector,
+                    'Product Group': cleanRow['Product Group'] || '-',
+                    'Goods Value': actual,
+                    'Budget Value': budget,
+                    'Achievement': parseFloat(achRate)
+                });
             });
 
-            // تحديث الكروت
+            // 2. تحديث الكروت العلوية
             document.getElementById('totalActualValue').innerText = actualTotal.toLocaleString() + " $";
             document.getElementById('totalBudgetValue').innerText = budgetTotal.toLocaleString() + " $";
-            const rate = budgetTotal > 0 ? ((actualTotal / budgetTotal) * 100).toFixed(1) : 0;
-            document.getElementById('achievementRate').innerText = rate + "%";
+            const totalRate = budgetTotal > 0 ? ((actualTotal / budgetTotal) * 100).toFixed(1) : 0;
+            document.getElementById('achievementRate').innerText = totalRate + "%";
             document.getElementById('totalBonus').innerText = bonusTotal.toLocaleString();
-            document.getElementById('updateTime').innerText = "آخر تحديث: " + new Date().toLocaleTimeString();
+            document.getElementById('updateTime').innerText = "آخر تحديث: " + new Date().toLocaleTimeString('ar-EG');
 
+            // 3. تحديث الرسوم البيانية والجدول
             updateCharts(sectorData, productData);
-            updateTable(data);
+            renderTableHeaders();
+            renderTableBody();
         }
 
+        // دالة إنشاء عناوين الجدول مع خاصية الفرز (Sorting)
+        function renderTableHeaders() {
+            const head = document.getElementById('tableHeaders');
+            head.innerHTML = '';
+            tableColumns.forEach(col => {
+                const th = document.createElement('th');
+                th.innerText = col.label;
+                th.onclick = () => sortTable(col.key);
+                head.appendChild(th);
+            });
+        }
+
+        // دالة تعبئة بيانات الجدول
+        function renderTableBody() {
+            const body = document.getElementById('tableBody');
+            body.innerHTML = '';
+            globalTableData.forEach(row => {
+                const tr = document.createElement('tr');
+                tableColumns.forEach(col => {
+                    const td = document.createElement('td');
+                    let val = row[col.key];
+                    
+                    // تنسيق الأرقام بشكل جميل
+                    if (col.key === 'Goods Value' || col.key === 'Budget Value') {
+                        td.innerText = val.toLocaleString() + " $";
+                    } else if (col.key === 'Achievement') {
+                        // تلوين نسبة الإنجاز
+                        td.innerText = val + " %";
+                        if(val >= 100) td.style.color = 'green';
+                        else if(val < 50) td.style.color = 'red';
+                        td.style.fontWeight = 'bold';
+                    } else {
+                        td.innerText = val;
+                    }
+                    tr.appendChild(td);
+                });
+                body.appendChild(tr);
+            });
+        }
+
+        // دالة الفرز (Sorting Logic)
+        window.sortTable = function(key) {
+            // عكس اتجاه الفرز في كل مرة
+            sortDirection[key] = !sortDirection[key];
+            const isAsc = sortDirection[key];
+
+            globalTableData.sort((a, b) => {
+                let valA = a[key];
+                let valB = b[key];
+
+                // التعامل مع النصوص والأرقام
+                if (typeof valA === 'string') valA = valA.toLowerCase();
+                if (typeof valB === 'string') valB = valB.toLowerCase();
+
+                if (valA < valB) return isAsc ? -1 : 1;
+                if (valA > valB) return isAsc ? 1 : -1;
+                return 0;
+            });
+
+            // إعادة رسم الجدول بالترتيب الجديد
+            renderTableBody();
+        };
+
+        // دالة الرسوم البيانية
         function updateCharts(sectors, products) {
             const chartConfigs = [
-                { id: 'sectorChart', type: 'pie', data: sectors, label: 'القطاعات' },
-                { id: 'productChart', type: 'bar', data: products, label: 'المنتجات' }
+                { id: 'sectorChart', type: 'pie', data: sectors, label: 'قيمة المبيعات (القطاعات)' },
+                { id: 'productChart', type: 'bar', data: products, label: 'قيمة المبيعات (المنتجات)' }
             ];
 
             chartConfigs.forEach(conf => {
@@ -140,23 +252,11 @@
                         datasets: [{
                             label: conf.label,
                             data: Object.values(conf.data),
-                            backgroundColor: ['#2563eb', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6']
+                            backgroundColor: ['#2563eb', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#14b8a6']
                         }]
                     },
                     options: { responsive: true, plugins: { legend: { position: 'bottom' } } }
                 });
-            });
-        }
-
-        function updateTable(data) {
-            const head = document.getElementById('tableHeaders'), body = document.getElementById('tableBody');
-            head.innerHTML = ''; body.innerHTML = '';
-            const keys = Object.keys(data[0]);
-            keys.forEach(k => { const th = document.createElement('th'); th.innerText = k; head.appendChild(th); });
-            data.forEach(row => {
-                const tr = document.createElement('tr');
-                keys.forEach(k => { const td = document.createElement('td'); td.innerText = row[k]; tr.appendChild(td); });
-                body.appendChild(tr);
             });
         }
     </script>
