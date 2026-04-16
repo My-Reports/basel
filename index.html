@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>لوحة الأداء الدوائي - الداشبورد</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        .kpi-container { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-bottom: 20px; }
+        .kpi-card { background: #fff; padding: 20px; border-radius: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); text-align: center; border-bottom: 4px solid #2563eb; }
+        .kpi-card h3 { font-size: 14px; color: #64748b; margin: 0; }
+        .kpi-card p { font-size: 24px; font-weight: bold; color: #1e293b; margin: 10px 0 0 0; }
+        .charts-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px; }
+        @media (max-width: 768px) { .charts-grid { grid-template-columns: 1fr; } }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>لوحة أداء المبيعات والطلب 💊</h1>
+            <p id="updateTime">تحديث مباشر من قاعدة البيانات</p>
+        </div>
+
+        <div class="kpi-container">
+            <div class="kpi-card">
+                <h3>إجمالي قيمة المبيعات (Actual)</h3>
+                <p id="totalActualValue">$0</p>
+            </div>
+            <div class="kpi-card">
+                <h3>إجمالي الميزانية (Budget)</h3>
+                <p id="totalBudgetValue">$0</p>
+            </div>
+            <div class="kpi-card">
+                <h3>نسبة الإنجاز (Achievement %)</h3>
+                <p id="achievementRate">0%</p>
+            </div>
+            <div class="kpi-card">
+                <h3>إجمالي كمية البونص</h3>
+                <p id="totalBonus">0</p>
+            </div>
+        </div>
+
+        <div class="charts-grid">
+            <div class="card">
+                <h3>تحليل المبيعات حسب المنتج (Top Products)</h3>
+                <canvas id="productChart"></canvas>
+            </div>
+            <div class="card">
+                <h3>توزيع المبيعات حسب القطاع (Sectors)</h3>
+                <canvas id="sectorChart"></canvas>
+            </div>
+        </div>
+
+        <div class="card">
+            <h3>تفاصيل الحركات المالية</h3>
+            <div style="overflow-x:auto;">
+                <table id="dataTable">
+                    <thead><tr id="tableHeaders"></tr></thead>
+                    <tbody id="tableBody"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+        import { getFirestore, collection, onSnapshot } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyA360HpoGNdaNiCqXt31SFVdQAw94Av7DI",
+            authDomain: "analytics-dashboard-bb7af.firebaseapp.com",
+            projectId: "analytics-dashboard-bb7af",
+            storageBucket: "analytics-dashboard-bb7af.firebasestorage.app",
+            messagingSenderId: "298567108374",
+            appId: "1:298567108374:web:3124038389ca2880ccf237"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+        let charts = {};
+
+        onSnapshot(collection(db, "mainData"), (snapshot) => {
+            const data = [];
+            snapshot.forEach(doc => data.push(doc.data()));
+            if (data.length > 0) processData(data);
+        });
+
+        function parseNum(val) {
+            if (typeof val === 'string') return parseFloat(val.replace(/,/g, '')) || 0;
+            return parseFloat(val) || 0;
+        }
+
+        function processData(data) {
+            // حساب الإجماليات
+            let actualTotal = 0, budgetTotal = 0, bonusTotal = 0;
+            const sectorData = {}, productData = {};
+
+            data.forEach(row => {
+                const actual = parseNum(row['Goods Value']);
+                const budget = parseNum(row['Budget Value']);
+                const bonus = parseNum(row['Bonus Quantity']);
+                const sector = row['Sector'] || 'Other';
+                const product = row['Product Name'] || 'Unknown';
+
+                actualTotal += actual;
+                budgetTotal += budget;
+                bonusTotal += bonus;
+
+                sectorData[sector] = (sectorData[sector] || 0) + actual;
+                productData[product] = (productData[product] || 0) + actual;
+            });
+
+            // تحديث الكروت
+            document.getElementById('totalActualValue').innerText = actualTotal.toLocaleString() + " $";
+            document.getElementById('totalBudgetValue').innerText = budgetTotal.toLocaleString() + " $";
+            const rate = budgetTotal > 0 ? ((actualTotal / budgetTotal) * 100).toFixed(1) : 0;
+            document.getElementById('achievementRate').innerText = rate + "%";
+            document.getElementById('totalBonus').innerText = bonusTotal.toLocaleString();
+            document.getElementById('updateTime').innerText = "آخر تحديث: " + new Date().toLocaleTimeString();
+
+            updateCharts(sectorData, productData);
+            updateTable(data);
+        }
+
+        function updateCharts(sectors, products) {
+            const chartConfigs = [
+                { id: 'sectorChart', type: 'pie', data: sectors, label: 'القطاعات' },
+                { id: 'productChart', type: 'bar', data: products, label: 'المنتجات' }
+            ];
+
+            chartConfigs.forEach(conf => {
+                const ctx = document.getElementById(conf.id).getContext('2d');
+                if (charts[conf.id]) charts[conf.id].destroy();
+                
+                charts[conf.id] = new Chart(ctx, {
+                    type: conf.type,
+                    data: {
+                        labels: Object.keys(conf.data),
+                        datasets: [{
+                            label: conf.label,
+                            data: Object.values(conf.data),
+                            backgroundColor: ['#2563eb', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6']
+                        }]
+                    },
+                    options: { responsive: true, plugins: { legend: { position: 'bottom' } } }
+                });
+            });
+        }
+
+        function updateTable(data) {
+            const head = document.getElementById('tableHeaders'), body = document.getElementById('tableBody');
+            head.innerHTML = ''; body.innerHTML = '';
+            const keys = Object.keys(data[0]);
+            keys.forEach(k => { const th = document.createElement('th'); th.innerText = k; head.appendChild(th); });
+            data.forEach(row => {
+                const tr = document.createElement('tr');
+                keys.forEach(k => { const td = document.createElement('td'); td.innerText = row[k]; tr.appendChild(td); });
+                body.appendChild(tr);
+            });
+        }
+    </script>
+</body>
+</html>
