@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>تحديث البيانات | الإدارة</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h2>⚙️ أداة تحديث البيانات (Admin)</h2>
+            <a href="index.html"><button style="background-color: #7f8c8d;">العودة للوحة التحكم</button></a>
+        </header>
+
+        <div class="card upload-area">
+            <h3>قم برفع ملف Excel لتحديث الموقع بالكامل</h3>
+            <p>ملاحظة: هذه العملية ستقوم بحذف البيانات القديمة ورفع البيانات الجديدة مباشرة.</p>
+            
+            <input type="file" id="excelFile" accept=".xlsx, .xls, .xlsm" style="display: none;">
+            <button onclick="document.getElementById('excelFile').click()">اختيار ملف Excel</button>
+            <br>
+            <button id="uploadBtn" style="background-color: #27ae60; display: none;">بدء التحديث والتزامن</button>
+            
+            <div id="status"></div>
+        </div>
+    </div>
+
+    <script type="module" src="admin.js"></script>
+</body>
+</html>
